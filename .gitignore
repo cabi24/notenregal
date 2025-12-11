@@ -12,3 +12,12 @@ favorites.json
 # Library and unsorted folders (user's music files)
 library/
 unsorted/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment files
+.env
+.env.local
+.env.*.local

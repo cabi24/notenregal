@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+client/node_modules/
+
+# Build output (we build fresh in Docker)
+client/dist/
+
+# User data files
+auth.json
+annotations.json
+shelves.json
+favorites.json
+
+# Library folder (mounted as volume)
+library/
+unsorted/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# GitHub
+.github/
+
+# Misc
+README.md
+PLANNED_FEATURES.md
+*.md

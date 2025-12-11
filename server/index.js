@@ -8,13 +8,17 @@ const unzipper = require('unzipper');
 const crypto = require('crypto');
 
 const app = express();
-const PORT = 3001;
 
-const LIBRARY_PATH = path.join(__dirname, '..', 'library');
-const SHELVES_FILE = path.join(__dirname, '..', 'shelves.json');
-const ANNOTATIONS_FILE = path.join(__dirname, '..', 'annotations.json');
-const AUTH_FILE = path.join(__dirname, '..', 'auth.json');
-const FAVORITES_FILE = path.join(__dirname, '..', 'favorites.json');
+// Configuration via environment variables
+const PORT = process.env.PORT || 3001;
+const DATA_PATH = process.env.DATA_PATH || path.join(__dirname, '..');
+const LIBRARY_PATH = process.env.LIBRARY_PATH || path.join(DATA_PATH, 'library');
+
+// Data files stored in DATA_PATH
+const SHELVES_FILE = path.join(DATA_PATH, 'shelves.json');
+const ANNOTATIONS_FILE = path.join(DATA_PATH, 'annotations.json');
+const AUTH_FILE = path.join(DATA_PATH, 'auth.json');
+const FAVORITES_FILE = path.join(DATA_PATH, 'favorites.json');
 
 // Session store (in-memory, will reset on server restart)
 const sessions = new Map();
@@ -897,8 +901,23 @@ app.get('/library/:fileName', requireAuth, (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+// Serve static client files in production
+const CLIENT_BUILD_PATH = path.join(__dirname, '..', 'client', 'dist');
+if (fs.existsSync(CLIENT_BUILD_PATH)) {
+  app.use(express.static(CLIENT_BUILD_PATH));
+  // Handle client-side routing - serve index.html for non-API routes
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/library')) {
+      return next();
+    }
+    res.sendFile(path.join(CLIENT_BUILD_PATH, 'index.html'));
+  });
+}
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
+  console.log(`Library path: ${LIBRARY_PATH}`);
+  console.log(`Data path: ${DATA_PATH}`);
   initShelvesFile();
   initAnnotationsFile();
   initFavoritesFile();

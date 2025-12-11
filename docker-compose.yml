@@ -1,0 +1,27 @@
+services:
+  notenregal:
+    image: cabi24/notenregal:latest
+    # Or build locally:
+    # build: .
+    container_name: notenregal
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3001}:3001"
+    environment:
+      - PORT=3001
+      - DATA_PATH=/data
+      - LIBRARY_PATH=/library
+    volumes:
+      # Persistent data (auth, shelves, annotations, favorites)
+      - notenregal-data:/data
+      # Your sheet music library - change this path to your music folder
+      - ${LIBRARY_PATH:-./library}:/library
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/auth/status"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  notenregal-data:
