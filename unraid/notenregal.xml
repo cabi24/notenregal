@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>notenregal</Name>
+  <Repository>cabi24/notenregal</Repository>
+  <Registry>https://hub.docker.com/r/cabi24/notenregal</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/cabi24/notenregal/issues</Support>
+  <Project>https://github.com/cabi24/notenregal</Project>
+  <Overview>A beautiful Victorian-themed sheet music library for organizing, viewing, and annotating your PDF collection. Features include PDF viewing with annotations (pen, highlighter, musical stamps), Regalpaket format for instant page turns, shelf organization, favorites, search, and mobile-friendly touch gestures.</Overview>
+  <Category>MediaApp:Music Productivity:</Category>
+  <WebUI>http://[IP]:[PORT:3001]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/cabi24/notenregal/main/unraid/notenregal.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/cabi24/notenregal/main/client/public/logo.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled></DateInstalled>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="Web UI Port" Target="3001" Default="3001" Mode="tcp" Description="Port for the web interface" Type="Port" Display="always" Required="true" Mask="false">3001</Config>
+  <Config Name="Library Path" Target="/library" Default="/mnt/user/media/sheetmusic" Mode="rw" Description="Path to your sheet music PDFs" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/media/sheetmusic</Config>
+  <Config Name="App Data" Target="/data" Default="/mnt/user/appdata/notenregal" Mode="rw" Description="Path for application data (auth, shelves, annotations)" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/notenregal</Config>
+</Container>
