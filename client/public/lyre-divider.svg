@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40">
+  <defs>
+    <linearGradient id="brassDivider" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f0d88a"/>
+      <stop offset="50%" style="stop-color:#d4a84b"/>
+      <stop offset="100%" style="stop-color:#8b6914"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Left line -->
+  <path d="M0 20 Q30 20, 60 20" stroke="url(#brassDivider)" stroke-width="1" fill="none" opacity="0.6"/>
+
+  <!-- Left scroll -->
+  <path d="M60 20 Q70 10, 80 15 Q85 18, 85 20 Q85 22, 80 25 Q70 30, 60 20Z"
+        fill="url(#brassDivider)" opacity="0.8"/>
+
+  <!-- Center lyre mini -->
+  <path d="M100 8 C92 8, 88 14, 88 20 C88 26, 92 32, 100 32 C108 32, 112 26, 112 20 C112 14, 108 8, 100 8Z"
+        fill="none" stroke="url(#brassDivider)" stroke-width="2"/>
+  <line x1="94" y1="14" x2="94" y2="28" stroke="url(#brassDivider)" stroke-width="1"/>
+  <line x1="100" y1="12" x2="100" y2="28" stroke="url(#brassDivider)" stroke-width="1"/>
+  <line x1="106" y1="14" x2="106" y2="28" stroke="url(#brassDivider)" stroke-width="1"/>
+
+  <!-- Right scroll -->
+  <path d="M140 20 Q130 10, 120 15 Q115 18, 115 20 Q115 22, 120 25 Q130 30, 140 20Z"
+        fill="url(#brassDivider)" opacity="0.8"/>
+
+  <!-- Right line -->
+  <path d="M140 20 Q170 20, 200 20" stroke="url(#brassDivider)" stroke-width="1" fill="none" opacity="0.6"/>
+</svg>

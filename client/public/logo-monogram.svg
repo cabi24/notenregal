@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="brass3" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f0d88a"/>
+      <stop offset="20%" style="stop-color:#d4a84b"/>
+      <stop offset="80%" style="stop-color:#b8860b"/>
+      <stop offset="100%" style="stop-color:#8b6914"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Decorative circle frame -->
+  <circle cx="50" cy="50" r="45" fill="none" stroke="url(#brass3)" stroke-width="2"/>
+
+  <!-- Inner decorative ring -->
+  <circle cx="50" cy="50" r="40" fill="none" stroke="url(#brass3)" stroke-width="1" opacity="0.5"/>
+
+  <!-- Ornate "N" -->
+  <path d="M30 72 L30 28
+           C30 25, 32 23, 35 25
+           L35 28
+           L50 55
+           L50 28
+           C50 25, 52 23, 55 25
+           L55 28
+           L70 55
+           L70 28
+           L70 72"
+        fill="none"
+        stroke="url(#brass3)"
+        stroke-width="5"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+
+  <!-- Top flourishes -->
+  <path d="M25 25 C20 20, 25 15, 32 18" fill="none" stroke="url(#brass3)" stroke-width="2" stroke-linecap="round"/>
+  <path d="M75 25 C80 20, 75 15, 68 18" fill="none" stroke="url(#brass3)" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Bottom flourishes -->
+  <path d="M25 75 C20 80, 25 85, 32 82" fill="none" stroke="url(#brass3)" stroke-width="2" stroke-linecap="round"/>
+  <path d="M75 75 C80 80, 75 85, 68 82" fill="none" stroke="url(#brass3)" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Musical note accent -->
+  <ellipse cx="78" cy="35" rx="5" ry="4" fill="url(#brass3)" transform="rotate(-20 78 35)"/>
+  <line x1="82" y1="33" x2="82" y2="18" stroke="url(#brass3)" stroke-width="2"/>
+  <path d="M82 18 C88 20, 88 25, 82 24" fill="url(#brass3)"/>
+</svg>

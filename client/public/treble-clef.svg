@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 200">
+  <defs>
+    <linearGradient id="clefGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6b2a2a" stop-opacity="0.15"/>
+      <stop offset="100%" style="stop-color:#4a1c1c" stop-opacity="0.1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Treble clef shape -->
+  <path d="M55 180
+           C55 175, 50 170, 45 170
+           C38 170, 35 175, 35 182
+           C35 190, 42 195, 50 195
+           C60 195, 68 188, 68 178
+           C68 165, 55 155, 55 140
+           C55 125, 65 115, 65 100
+           C65 85, 55 75, 50 65
+           C45 55, 50 45, 55 40
+           C60 35, 65 40, 65 48
+           C65 55, 58 60, 52 60
+           C46 60, 42 55, 42 48
+           C42 40, 48 35, 55 35
+           C65 35, 75 45, 75 60
+           C75 80, 60 95, 60 115
+           C60 135, 78 150, 78 175
+           C78 195, 62 205, 48 205
+           C32 205, 22 192, 22 178
+           C22 165, 32 158, 42 158
+           C52 158, 58 165, 58 175
+           C58 182, 55 185, 55 180Z
+           M52 35 L52 15"
+        fill="url(#clefGradient)"
+        stroke="url(#clefGradient)"
+        stroke-width="2"/>
+</svg>

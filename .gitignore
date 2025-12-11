@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# User data files
+auth.json
+annotations.json
+shelves.json
+favorites.json
+
+# Library and unsorted folders (user's music files)
+library/
+unsorted/

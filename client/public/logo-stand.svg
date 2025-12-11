@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="brass2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f0d88a"/>
+      <stop offset="25%" style="stop-color:#d4a84b"/>
+      <stop offset="75%" style="stop-color:#b8860b"/>
+      <stop offset="100%" style="stop-color:#8b6914"/>
+    </linearGradient>
+    <linearGradient id="mahogany" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6b2a2a"/>
+      <stop offset="50%" style="stop-color:#4a1c1c"/>
+      <stop offset="100%" style="stop-color:#2d1010"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Music stand desk (angled book rest) -->
+  <path d="M15 25 L85 25 L78 55 L22 55 Z"
+        fill="url(#mahogany)"
+        stroke="url(#brass2)"
+        stroke-width="2"/>
+
+  <!-- Brass lip/edge at bottom of desk -->
+  <path d="M22 55 L78 55 L76 60 L24 60 Z" fill="url(#brass2)"/>
+
+  <!-- Staff lines on the desk -->
+  <line x1="25" y1="32" x2="75" y2="32" stroke="#f0d88a" stroke-width="1" opacity="0.6"/>
+  <line x1="24" y1="37" x2="76" y2="37" stroke="#f0d88a" stroke-width="1" opacity="0.6"/>
+  <line x1="23" y1="42" x2="77" y2="42" stroke="#f0d88a" stroke-width="1" opacity="0.6"/>
+  <line x1="22" y1="47" x2="78" y2="47" stroke="#f0d88a" stroke-width="1" opacity="0.6"/>
+  <line x1="22" y1="52" x2="78" y2="52" stroke="#f0d88a" stroke-width="1" opacity="0.6"/>
+
+  <!-- Treble clef suggestion -->
+  <path d="M50 30 C45 33, 45 38, 50 40 C55 42, 55 48, 50 52"
+        fill="none"
+        stroke="#f0d88a"
+        stroke-width="2"
+        stroke-linecap="round"
+        opacity="0.8"/>
+
+  <!-- Center pole -->
+  <rect x="47" y="58" width="6" height="28" fill="url(#brass2)"/>
+
+  <!-- Decorative joint -->
+  <ellipse cx="50" cy="60" rx="6" ry="3" fill="url(#brass2)"/>
+
+  <!-- Tripod base -->
+  <path d="M50 86 L30 95 L32 92 L50 84 Z" fill="url(#brass2)"/>
+  <path d="M50 86 L70 95 L68 92 L50 84 Z" fill="url(#brass2)"/>
+  <path d="M50 86 L50 98 L52 98 L52 84 Z" fill="url(#brass2)"/>
+
+  <!-- Base center -->
+  <circle cx="50" cy="86" r="4" fill="url(#brass2)"/>
+</svg>

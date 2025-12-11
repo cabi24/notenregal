@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="brassCorner" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f0d88a"/>
+      <stop offset="50%" style="stop-color:#d4a84b"/>
+      <stop offset="100%" style="stop-color:#8b6914"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Main corner scroll -->
+  <path d="M5 95
+           Q5 50, 30 30
+           Q45 18, 60 20
+           Q50 25, 45 35
+           Q38 50, 40 65
+           Q42 75, 35 80
+           Q25 88, 15 85
+           Q8 82, 5 95Z"
+        fill="url(#brassCorner)"
+        opacity="0.9"/>
+
+  <!-- Inner curl -->
+  <path d="M20 70
+           Q25 55, 35 50
+           Q45 45, 50 35
+           Q48 42, 42 48
+           Q32 55, 28 65
+           Q25 72, 20 70Z"
+        fill="url(#brassCorner)"
+        opacity="0.7"/>
+
+  <!-- Decorative dots -->
+  <circle cx="55" cy="25" r="3" fill="url(#brassCorner)"/>
+  <circle cx="65" cy="30" r="2" fill="url(#brassCorner)"/>
+  <circle cx="72" cy="38" r="1.5" fill="url(#brassCorner)"/>
+
+  <!-- Leaf accent -->
+  <path d="M60 15
+           Q70 10, 80 15
+           Q75 20, 65 18
+           Q60 17, 60 15Z"
+        fill="url(#brassCorner)"
+        opacity="0.8"/>
+</svg>

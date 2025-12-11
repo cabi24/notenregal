@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="brass" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f0d88a"/>
+      <stop offset="30%" style="stop-color:#d4a84b"/>
+      <stop offset="70%" style="stop-color:#b8860b"/>
+      <stop offset="100%" style="stop-color:#8b6914"/>
+    </linearGradient>
+    <linearGradient id="brassLight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f0d88a"/>
+      <stop offset="100%" style="stop-color:#d4a84b"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Lyre frame - elegant curves -->
+  <path d="M50 8
+           C35 8, 22 20, 22 38
+           C22 52, 28 62, 35 70
+           L35 82
+           C35 86, 38 88, 42 88
+           L58 88
+           C62 88, 65 86, 65 82
+           L65 70
+           C72 62, 78 52, 78 38
+           C78 20, 65 8, 50 8Z"
+        fill="none"
+        stroke="url(#brass)"
+        stroke-width="4"
+        stroke-linecap="round"/>
+
+  <!-- Inner curves (lyre arms) -->
+  <path d="M38 25 C32 35, 32 50, 38 60"
+        fill="none"
+        stroke="url(#brass)"
+        stroke-width="2.5"
+        stroke-linecap="round"/>
+  <path d="M62 25 C68 35, 68 50, 62 60"
+        fill="none"
+        stroke="url(#brass)"
+        stroke-width="2.5"
+        stroke-linecap="round"/>
+
+  <!-- Strings -->
+  <line x1="42" y1="30" x2="42" y2="75" stroke="url(#brassLight)" stroke-width="1.5"/>
+  <line x1="50" y1="25" x2="50" y2="75" stroke="url(#brassLight)" stroke-width="1.5"/>
+  <line x1="58" y1="30" x2="58" y2="75" stroke="url(#brassLight)" stroke-width="1.5"/>
+
+  <!-- Crossbar -->
+  <rect x="38" y="72" width="24" height="4" rx="1" fill="url(#brass)"/>
+
+  <!-- Base decoration -->
+  <ellipse cx="50" cy="90" rx="12" ry="4" fill="url(#brass)"/>
+
+  <!-- Top ornament -->
+  <circle cx="50" cy="12" r="4" fill="url(#brass)"/>
+</svg>
