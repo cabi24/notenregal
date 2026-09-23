@@ -2,6 +2,7 @@
 
 A self-hosted sheet music library. Point it at a folder of PDFs to browse, read and annotate them in the browser.
 
+![License](https://img.shields.io/github/license/cabi24/notenregal)
 ![Docker Pulls](https://img.shields.io/docker/pulls/cabi24/notenregal)
 ![Docker Image Size](https://img.shields.io/docker/image-size/cabi24/notenregal/latest)
 
@@ -94,4 +95,4 @@ The client is React with Vite, using react-pdf to render PDFs. The server is a s
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).

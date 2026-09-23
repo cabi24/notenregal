@@ -2,6 +2,7 @@
   "name": "notenregal",
   "version": "1.0.0",
   "description": "Notenregal - A beautiful virtual music stand for your sheet music collection",
+  "license": "MIT",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "node server/index.js",
