@@ -1,26 +1,20 @@
 # Notenregal
 
-A beautiful Victorian-themed sheet music library for organizing, viewing, and annotating your PDF collection.
+A self-hosted sheet music library. Point it at a folder of PDFs to browse, read and annotate them in the browser.
 
-![License](https://img.shields.io/github/license/cabi24/notenregal)
 ![Docker Pulls](https://img.shields.io/docker/pulls/cabi24/notenregal)
 ![Docker Image Size](https://img.shields.io/docker/image-size/cabi24/notenregal/latest)
 
 ## Features
 
-- **PDF Viewer** - Smooth page navigation with zoom controls
-- **Annotation Tools** - Pen, highlighter, eraser, and musical stamps (fermata, accents, dynamics)
-- **Regalpaket Format** - Convert PDFs to pre-rendered images for instant page turns
-- **Shelf Organization** - Create custom shelves to categorize your music
-- **Favorites** - Mark songs with a star for quick access
-- **Search & Sort** - Find music by name, sort by date or type
-- **Grid & List Views** - Switch views to see full titles
-- **Mobile Friendly** - Touch gestures for page turning
-- **Password Protected** - Simple authentication to secure your library
+- Read PDFs with zoom, fullscreen, keyboard (arrow keys, space) and swipe page turns
+- Convert a PDF to a **Regalpaket**: pages pre-rendered as images for instant page turns, with a two-page spread view
+- Annotate Regalpakete with a pen, highlighter, eraser and stamps (fermata, breath mark, accent, staccato, check, X, star, circle)
+- Organize music into shelves and favorites; search, sort by name, date or type, and switch between grid and list view
+- Upload and rename files from the browser
+- Password login
 
-## Quick Start
-
-### Docker Run
+## Quick start
 
 ```bash
 docker run -d \
@@ -32,11 +26,9 @@ docker run -d \
   cabi24/notenregal
 ```
 
-Open `http://localhost:3001` and set your password.
+Open `http://localhost:3001` and choose a password. If someone else could reach the port before you do, set `NOTENREGAL_PASSWORD` instead, so the password is in place from the first start.
 
-If the port is reachable by others before you get to it, set `NOTENREGAL_PASSWORD` instead (for example `-e NOTENREGAL_PASSWORD=...`) so the password is in place from the first start.
-
-### Docker Compose
+With Docker Compose:
 
 ```yaml
 services:
@@ -46,6 +38,8 @@ services:
     restart: unless-stopped
     ports:
       - "3001:3001"
+    # environment:
+    #   - NOTENREGAL_PASSWORD=change-me
     volumes:
       - /path/to/your/music:/library
       - notenregal-data:/data
@@ -54,78 +48,49 @@ volumes:
   notenregal-data:
 ```
 
+An Unraid template is in [`unraid/notenregal.xml`](unraid/notenregal.xml).
+
 ## Configuration
 
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `PORT` | `3001` | Server port |
-| `LIBRARY_PATH` | `/library` | Path to sheet music |
-| `DATA_PATH` | `/data` | Path to config files |
-| `NOTENREGAL_PASSWORD` | _(unset)_ | Initial password (at least 8 characters). Only used while no password is set; changing it in the app takes over afterwards |
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `3001` | Port the server listens on |
+| `LIBRARY_PATH` | `/library` | Folder containing your PDFs and Regalpakete |
+| `DATA_PATH` | `/data` | Folder for the password hash, sessions, shelves, favorites and annotations |
+| `NOTENREGAL_PASSWORD` | unset | Initial password, at least 8 characters. Only used while no password exists; after that, change it in the app |
 
 ## Usage
 
-### Adding Music
-Drop PDF files into your library directory. They appear automatically on refresh.
+**Adding music.** Upload PDFs with **+ Upload PDF**, or copy them into the library folder and reload the page. Only files directly in the folder are listed, not files in subfolders.
 
-### Organizing
-- **Shelves** - Create shelves in the sidebar, right-click songs to add them
-- **Favorites** - Right-click any song to toggle favorite status
-- **Search** - Use the search bar to filter by name
+**Shelves and favorites.** Create shelves in the sidebar. Right-click a piece to add it to a shelf, rename it, or mark it as a favorite.
 
-### Annotations
-Open any PDF and click the pencil icon to enter annotation mode:
-- **Pen** - Freehand drawing
-- **Highlighter** - Semi-transparent marking
-- **Stamps** - Musical notation (fermata, accents, breath marks)
-- **Eraser** - Remove strokes
+**Regalpakete.** Open a PDF and click **Make Regalpaket**. This renders every page at 300 DPI and saves a `.regal` file (a zip of the page images plus the original PDF) next to the PDF. Shelves and favorites switch over to the new file. The original PDF is kept.
 
-Annotations are saved automatically.
-
-### Regalpaket
-For performance use, convert PDFs to Regalpaket format:
-1. Open a PDF
-2. Click "Make Regalpaket"
-3. Pages are pre-rendered as images for instant display
+**Annotations.** Open a Regalpaket and click ✏ to show the annotation toolbar. Changes save automatically to `annotations.json` in the data folder.
 
 ## Development
 
+Requires Node.js 20 or later.
+
 ```bash
-# Clone the repo
 git clone https://github.com/cabi24/notenregal.git
 cd notenregal
-
-# Install dependencies
 npm install
-cd client && npm install && cd ..
-
-# Run development servers
+npm install --prefix client
 npm run dev
 ```
 
-The client runs on `http://localhost:3000` and proxies API requests to the server on port 3001.
+This starts the Vite dev server on `http://localhost:3000`, which forwards API requests to the Express server on port 3001. With no environment variables set, the server keeps its data files in the repository root and the library in `./library`.
 
-## Building
+To build:
 
 ```bash
-# Build the client
-npm run build
-
-# Build Docker image
-docker build -t notenregal .
+npm run build                    # client only, into client/dist
+docker build -t notenregal .     # full image
 ```
 
-## Architecture
-
-- **Frontend** - React + Vite
-- **Backend** - Node.js + Express
-- **PDF Rendering** - react-pdf (PDF.js)
-- **Storage** - File-based JSON for simplicity
-
-## Links
-
-- [DockerHub](https://hub.docker.com/r/cabi24/notenregal)
-- [GitHub](https://github.com/cabi24/notenregal)
+The client is React with Vite, using react-pdf to render PDFs. The server is a single Express app (`server/index.js`) that stores everything in JSON files; there is no database.
 
 ## License
 
