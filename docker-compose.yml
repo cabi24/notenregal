@@ -11,8 +11,10 @@ services:
       - PORT=3001
       - DATA_PATH=/data
       - LIBRARY_PATH=/library
+      # Optional: set the password up front instead of on first visit (min. 8 characters)
+      # - NOTENREGAL_PASSWORD=change-me
     volumes:
-      # Persistent data (auth, shelves, annotations, favorites)
+      # Persistent data (auth, sessions, shelves, annotations, favorites)
       - notenregal-data:/data
       # Your sheet music library - change this path to your music folder
       - ${LIBRARY_PATH:-./library}:/library

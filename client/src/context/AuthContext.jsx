@@ -1,29 +1,21 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem('auth_token'))
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
-  // Check if token is valid on mount
+  // The session lives in an HttpOnly cookie; ask the server whether it's valid
   useEffect(() => {
+    // Tokens were kept in localStorage before sessions moved to a cookie
+    localStorage.removeItem('auth_token')
+
     const checkAuth = async () => {
-      if (!token) {
-        setIsLoading(false)
-        return
-      }
       try {
-        const res = await fetch('/api/auth/check', {
-          headers: { 'X-Auth-Token': token }
-        })
+        const res = await fetch('/api/auth/check')
         const data = await res.json()
         setIsAuthenticated(data.authenticated)
-        if (!data.authenticated) {
-          localStorage.removeItem('auth_token')
-          setToken(null)
-        }
       } catch (err) {
         console.error('Auth check failed:', err)
         setIsAuthenticated(false)
@@ -32,7 +24,7 @@ export function AuthProvider({ children }) {
       }
     }
     checkAuth()
-  }, [token])
+  }, [])
 
   const login = async (password) => {
     try {
@@ -42,9 +34,7 @@ export function AuthProvider({ children }) {
         body: JSON.stringify({ password })
       })
       const data = await res.json()
-      if (data.success && data.token) {
-        localStorage.setItem('auth_token', data.token)
-        setToken(data.token)
+      if (data.success) {
         setIsAuthenticated(true)
         return { success: true }
       }
@@ -56,15 +46,10 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     try {
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        headers: { 'X-Auth-Token': token }
-      })
+      await fetch('/api/auth/logout', { method: 'POST' })
     } catch (err) {
       console.error('Logout error:', err)
     }
-    localStorage.removeItem('auth_token')
-    setToken(null)
     setIsAuthenticated(false)
   }
 
@@ -72,10 +57,7 @@ export function AuthProvider({ children }) {
     try {
       const res = await fetch('/api/auth/change-password', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Auth-Token': token
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentPassword, newPassword })
       })
       const data = await res.json()
@@ -88,18 +70,18 @@ export function AuthProvider({ children }) {
     }
   }
 
-  // Helper to make authenticated fetch requests
-  const authFetch = async (url, options = {}) => {
-    const headers = {
-      ...options.headers,
-      'X-Auth-Token': token
+  // Fetch for API calls: the session cookie is sent automatically. If the
+  // session has expired, go back to the login screen.
+  const authFetch = useCallback(async (url, options = {}) => {
+    const res = await fetch(url, options)
+    if (res.status === 401) {
+      setIsAuthenticated(false)
     }
-    return fetch(url, { ...options, headers })
-  }
+    return res
+  }, [])
 
   return (
     <AuthContext.Provider value={{
-      token,
       isAuthenticated,
       isLoading,
       login,

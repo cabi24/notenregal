@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
-import { useAuth } from '../context/AuthContext'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
 
@@ -8,7 +7,6 @@ import 'react-pdf/dist/Page/TextLayer.css'
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 
 function PdfViewer({ file, onClose, onConvertToRegal }) {
-  const { token } = useAuth()
   const [numPages, setNumPages] = useState(null)
   const [scale, setScale] = useState(null) // null = fit mode
   const [pageSize, setPageSize] = useState(null)
@@ -208,7 +206,7 @@ function PdfViewer({ file, onClose, onConvertToRegal }) {
           onTouchEnd={handleTouchEnd}
         >
           <Document
-            file={`${file.path}?token=${encodeURIComponent(token)}`}
+            file={file.path}
             onLoadSuccess={onDocumentLoadSuccess}
             loading={<div className="pdf-loading">Loading...</div>}
             error={<div className="pdf-error">Failed to load PDF</div>}
