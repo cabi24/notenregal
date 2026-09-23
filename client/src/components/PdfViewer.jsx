@@ -2,9 +2,12 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
+// Bundled with the app so PDFs open without reaching a CDN. pdfjs-dist is
+// pinned in package.json to the exact version react-pdf requires.
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 // Set up PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 function PdfViewer({ file, onClose, onConvertToRegal }) {
   const [numPages, setNumPages] = useState(null)
