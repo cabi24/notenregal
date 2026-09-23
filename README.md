@@ -34,6 +34,8 @@ docker run -d \
 
 Open `http://localhost:3001` and set your password.
 
+If the port is reachable by others before you get to it, set `NOTENREGAL_PASSWORD` instead (for example `-e NOTENREGAL_PASSWORD=...`) so the password is in place from the first start.
+
 ### Docker Compose
 
 ```yaml
@@ -59,6 +61,7 @@ volumes:
 | `PORT` | `3001` | Server port |
 | `LIBRARY_PATH` | `/library` | Path to sheet music |
 | `DATA_PATH` | `/data` | Path to config files |
+| `NOTENREGAL_PASSWORD` | _(unset)_ | Initial password (at least 8 characters). Only used while no password is set; changing it in the app takes over afterwards |
 
 ## Usage
 

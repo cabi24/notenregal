@@ -5,7 +5,7 @@ import AnnotationToolbar from './AnnotationToolbar'
 import StaticAnnotationLayer from './StaticAnnotationLayer'
 
 function RegalpaketViewer({ file, onClose, onAnnotationsChange }) {
-  const { authFetch, token } = useAuth()
+  const { authFetch } = useAuth()
   const [manifest, setManifest] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [scale, setScale] = useState(null) // null = fit mode
@@ -68,14 +68,14 @@ function RegalpaketViewer({ file, onClose, onAnnotationsChange }) {
 
   // Preload images
   useEffect(() => {
-    if (!manifest || !token) return
+    if (!manifest) return
 
     const preloadImage = (pageNum) => {
       if (imageCache.current[pageNum]) return
 
       const img = new Image()
-      // Add auth token to image URL
-      img.src = `/api/regalpaket/${encodeURIComponent(file.name)}/page/${pageNum}?token=${encodeURIComponent(token)}`
+      // The manifest's creation time changes on re-conversion, so cached pages from an older version aren't reused
+      img.src = `/api/regalpaket/${encodeURIComponent(file.name)}/page/${pageNum}?v=${encodeURIComponent(manifest.created)}`
       img.onload = () => {
         imageCache.current[pageNum] = img
         // If this is the current page, trigger update
@@ -95,7 +95,7 @@ function RegalpaketViewer({ file, onClose, onAnnotationsChange }) {
     for (let i = 1; i <= manifest.pageCount; i++) {
       setTimeout(() => preloadImage(i), i * 100)
     }
-  }, [manifest, currentPage, file.name, token])
+  }, [manifest, currentPage, file.name])
 
   // Update image size when current page changes
   useEffect(() => {

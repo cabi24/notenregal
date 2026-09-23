@@ -1,11 +1,11 @@
 const express = require('express');
-const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const archiver = require('archiver');
 const unzipper = require('unzipper');
 const crypto = require('crypto');
+const util = require('util');
 
 const app = express();
 
@@ -68,53 +68,152 @@ function uniqueLibraryName(name) {
   return candidate;
 }
 
-// Session store (in-memory, will reset on server restart)
-const sessions = new Map();
+const SESSIONS_FILE = path.join(DATA_PATH, 'sessions.json');
+const SESSION_COOKIE = 'notenregal_session';
 const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+const MIN_PASSWORD_LENGTH = 8;
+const PBKDF2_ITERATIONS = 210000; // OWASP recommendation for PBKDF2-HMAC-SHA512
+const LEGACY_PBKDF2_ITERATIONS = 10000; // Used by auth.json files without an iterations field
+
+const MAX_FAILED_LOGINS = 10;
+const FAILED_LOGIN_WINDOW = 15 * 60 * 1000; // 15 minutes
+
+const pbkdf2 = util.promisify(crypto.pbkdf2);
 
 // Check if password has been set
 function isPasswordSet() {
   return fs.existsSync(AUTH_FILE);
 }
 
-// Set initial password (only works if no password exists)
-function setInitialPassword(password) {
-  if (isPasswordSet()) {
-    return false;
-  }
+async function makePasswordRecord(password) {
   const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-  writeJsonAtomic(AUTH_FILE, { salt, hash });
-  return true;
+  const hash = await pbkdf2(password, salt, PBKDF2_ITERATIONS, 64, 'sha512');
+  return { salt, hash: hash.toString('hex'), iterations: PBKDF2_ITERATIONS };
 }
 
-function verifyPassword(password) {
+async function verifyPassword(password) {
   const auth = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf8'));
-  const hash = crypto.pbkdf2Sync(password, auth.salt, 10000, 64, 'sha512').toString('hex');
-  return hash === auth.hash;
+  const iterations = auth.iterations || LEGACY_PBKDF2_ITERATIONS;
+  const hash = await pbkdf2(password, auth.salt, iterations, 64, 'sha512');
+  const expected = Buffer.from(auth.hash, 'hex');
+  const valid = hash.length === expected.length && crypto.timingSafeEqual(hash, expected);
+
+  // Re-hash passwords stored with an older, weaker iteration count
+  if (valid && iterations < PBKDF2_ITERATIONS) {
+    writeJsonAtomic(AUTH_FILE, await makePasswordRecord(password));
+  }
+  return valid;
+}
+
+function passwordLengthError(password) {
+  return password.length < MIN_PASSWORD_LENGTH
+    ? `Password must be at least ${MIN_PASSWORD_LENGTH} characters`
+    : null;
+}
+
+// Sessions are saved to disk so logins survive restarts. Only a hash of each
+// token is stored, so the file on its own can't be used to log in.
+const sessions = loadSessions();
+
+function hashToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function loadSessions() {
+  try {
+    return new Map(Object.entries(JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8')).sessions));
+  } catch {
+    return new Map();
+  }
+}
+
+function saveSessions() {
+  const now = Date.now();
+  for (const [key, session] of sessions) {
+    if (now - session.created > SESSION_DURATION) {
+      sessions.delete(key);
+    }
+  }
+  writeJsonAtomic(SESSIONS_FILE, { sessions: Object.fromEntries(sessions) });
 }
 
 function createSession() {
   const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, { created: Date.now() });
+  sessions.set(hashToken(token), { created: Date.now() });
+  saveSessions();
   return token;
 }
 
 function isValidSession(token) {
   if (!token) return false;
-  const session = sessions.get(token);
+  const key = hashToken(token);
+  const session = sessions.get(key);
   if (!session) return false;
   if (Date.now() - session.created > SESSION_DURATION) {
-    sessions.delete(token);
+    sessions.delete(key);
+    saveSessions();
     return false;
   }
   return true;
 }
 
+// The session token lives in an HttpOnly cookie, so it never appears in URLs
+// (PDF and page image requests) and page scripts can't read it
+function getSessionToken(req) {
+  for (const part of (req.headers.cookie || '').split(';')) {
+    const [name, ...value] = part.trim().split('=');
+    if (name === SESSION_COOKIE) {
+      return value.join('=');
+    }
+  }
+  return null;
+}
+
+function setSessionCookie(req, res, token) {
+  res.cookie(SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: 'strict',
+    // Only mark Secure when served over HTTPS; plain-HTTP LAN setups must keep working
+    secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
+    maxAge: SESSION_DURATION,
+    path: '/'
+  });
+}
+
+// Limit password guessing to MAX_FAILED_LOGINS per client IP per window.
+// Behind a reverse proxy all clients share the proxy's IP.
+const failedLogins = new Map();
+
+function loginRetryAfter(ip) {
+  const entry = failedLogins.get(ip);
+  if (!entry || Date.now() - entry.windowStart > FAILED_LOGIN_WINDOW) {
+    return 0;
+  }
+  return entry.count >= MAX_FAILED_LOGINS ? entry.windowStart + FAILED_LOGIN_WINDOW - Date.now() : 0;
+}
+
+function recordFailedLogin(ip) {
+  const now = Date.now();
+  for (const [key, entry] of failedLogins) {
+    if (now - entry.windowStart > FAILED_LOGIN_WINDOW) {
+      failedLogins.delete(key);
+    }
+  }
+  const entry = failedLogins.get(ip) || { count: 0, windowStart: now };
+  entry.count++;
+  failedLogins.set(ip, entry);
+}
+
+function sendTooManyAttempts(res, retryAfter) {
+  const minutes = Math.ceil(retryAfter / 60000);
+  res.set('Retry-After', String(Math.ceil(retryAfter / 1000)));
+  res.status(429).json({ error: `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.` });
+}
+
 // Auth middleware
 function requireAuth(req, res, next) {
-  const token = req.headers['x-auth-token'] || req.query.token;
-  if (isValidSession(token)) {
+  if (isValidSession(getSessionToken(req))) {
     return next();
   }
   res.status(401).json({ error: 'Unauthorized' });
@@ -159,7 +258,6 @@ const upload = multer({
   }
 });
 
-app.use(cors());
 app.use(express.json());
 
 // ========================================
@@ -172,19 +270,22 @@ app.get('/api/auth/status', (req, res) => {
 });
 
 // Set initial password (only works if no password exists yet)
-app.post('/api/auth/setup', (req, res) => {
+app.post('/api/auth/setup', async (req, res) => {
   try {
     const { password } = req.body;
-    if (!password) {
+    if (typeof password !== 'string' || !password) {
       return res.status(400).json({ error: 'Password required' });
     }
-    if (password.length < 4) {
-      return res.status(400).json({ error: 'Password must be at least 4 characters' });
+    const lengthError = passwordLengthError(password);
+    if (lengthError) {
+      return res.status(400).json({ error: lengthError });
     }
+    const record = await makePasswordRecord(password);
+    // Checked after hashing, so two concurrent setups can't both succeed
     if (isPasswordSet()) {
       return res.status(400).json({ error: 'Password already set' });
     }
-    setInitialPassword(password);
+    writeJsonAtomic(AUTH_FILE, record);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -192,19 +293,25 @@ app.post('/api/auth/setup', (req, res) => {
 });
 
 // Login
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   try {
     const { password } = req.body;
-    if (!password) {
+    if (typeof password !== 'string' || !password) {
       return res.status(400).json({ error: 'Password required' });
     }
     if (!isPasswordSet()) {
       return res.status(400).json({ error: 'Password not set up yet' });
     }
-    if (verifyPassword(password)) {
-      const token = createSession();
-      res.json({ success: true, token });
+    const retryAfter = loginRetryAfter(req.ip);
+    if (retryAfter) {
+      return sendTooManyAttempts(res, retryAfter);
+    }
+    if (await verifyPassword(password)) {
+      failedLogins.delete(req.ip);
+      setSessionCookie(req, res, createSession());
+      res.json({ success: true });
     } else {
+      recordFailedLogin(req.ip);
       res.status(401).json({ error: 'Invalid password' });
     }
   } catch (err) {
@@ -214,35 +321,50 @@ app.post('/api/auth/login', (req, res) => {
 
 // Check if session is valid
 app.get('/api/auth/check', (req, res) => {
-  const token = req.headers['x-auth-token'];
-  res.json({ authenticated: isValidSession(token) });
+  res.json({ authenticated: isValidSession(getSessionToken(req)) });
 });
 
 // Logout
 app.post('/api/auth/logout', (req, res) => {
-  const token = req.headers['x-auth-token'];
+  const token = getSessionToken(req);
   if (token) {
-    sessions.delete(token);
+    sessions.delete(hashToken(token));
+    saveSessions();
   }
+  res.clearCookie(SESSION_COOKIE, { path: '/' });
   res.json({ success: true });
 });
 
 // Change password (requires current session)
-app.post('/api/auth/change-password', requireAuth, (req, res) => {
+app.post('/api/auth/change-password', requireAuth, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
-    if (!currentPassword || !newPassword) {
+    if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || !currentPassword || !newPassword) {
       return res.status(400).json({ error: 'Current and new password required' });
     }
-    if (!verifyPassword(currentPassword)) {
+    const retryAfter = loginRetryAfter(req.ip);
+    if (retryAfter) {
+      return sendTooManyAttempts(res, retryAfter);
+    }
+    if (!(await verifyPassword(currentPassword))) {
+      recordFailedLogin(req.ip);
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    const lengthError = passwordLengthError(newPassword);
+    if (lengthError) {
+      return res.status(400).json({ error: lengthError });
     }
-    const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.pbkdf2Sync(newPassword, salt, 10000, 64, 'sha512').toString('hex');
-    writeJsonAtomic(AUTH_FILE, { salt, hash });
+    writeJsonAtomic(AUTH_FILE, await makePasswordRecord(newPassword));
+
+    // Log out every other device
+    const currentKey = hashToken(getSessionToken(req));
+    for (const key of sessions.keys()) {
+      if (key !== currentKey) {
+        sessions.delete(key);
+      }
+    }
+    saveSessions();
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -878,7 +1000,9 @@ app.get('/api/regalpaket/:fileName/page/:pageNum', requireAuth, async (req, res)
 
     const content = await pageFile.buffer();
     res.set('Content-Type', 'image/png');
-    res.set('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+    // Private: pages require login. Safe to cache long, since the client adds
+    // the manifest's creation time to the URL and re-converting changes it.
+    res.set('Cache-Control', 'private, max-age=31536000, immutable');
     res.send(content);
 
   } catch (err) {
@@ -994,13 +1118,30 @@ if (fs.existsSync(CLIENT_BUILD_PATH)) {
   });
 }
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on http://0.0.0.0:${PORT}`);
-  console.log(`Library path: ${LIBRARY_PATH}`);
-  console.log(`Data path: ${DATA_PATH}`);
-  initShelvesFile();
-  initAnnotationsFile();
-  initFavoritesFile();
-  cleanupTempFiles();
-  importAllRegalAnnotations();
+// Set the password from NOTENREGAL_PASSWORD before accepting connections, so
+// nobody can claim a fresh install through the setup screen first. Only used
+// while no password exists; changing it in the app takes over afterwards.
+async function applyInitialPassword() {
+  const password = process.env.NOTENREGAL_PASSWORD;
+  if (!password || isPasswordSet()) return;
+  const lengthError = passwordLengthError(password);
+  if (lengthError) {
+    console.error(`NOTENREGAL_PASSWORD is invalid: ${lengthError}`);
+    process.exit(1);
+  }
+  writeJsonAtomic(AUTH_FILE, await makePasswordRecord(password));
+  console.log('Password set from NOTENREGAL_PASSWORD');
+}
+
+applyInitialPassword().then(() => {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    console.log(`Library path: ${LIBRARY_PATH}`);
+    console.log(`Data path: ${DATA_PATH}`);
+    initShelvesFile();
+    initAnnotationsFile();
+    initFavoritesFile();
+    cleanupTempFiles();
+    importAllRegalAnnotations();
+  });
 });
