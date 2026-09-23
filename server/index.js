@@ -20,6 +20,54 @@ const ANNOTATIONS_FILE = path.join(DATA_PATH, 'annotations.json');
 const AUTH_FILE = path.join(DATA_PATH, 'auth.json');
 const FAVORITES_FILE = path.join(DATA_PATH, 'favorites.json');
 
+// Write to a temp file and rename over the target, so a crash mid-write
+// can't leave a truncated file behind
+function writeFileAtomic(file, content) {
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, content);
+  fs.renameSync(tmp, file);
+}
+
+function writeJsonAtomic(file, data) {
+  writeFileAtomic(file, JSON.stringify(data, null, 2));
+}
+
+// Resolve a file name to an absolute path directly inside LIBRARY_PATH, or
+// return null if it would point anywhere else. Express has already
+// URL-decoded route params, so names must not be decoded again.
+function resolveLibraryFile(name) {
+  if (typeof name !== 'string' || !name || name.includes('\0')) {
+    return null;
+  }
+  const root = path.resolve(LIBRARY_PATH);
+  const resolved = path.resolve(root, name);
+  if (path.dirname(resolved) !== root) {
+    return null;
+  }
+  return resolved;
+}
+
+// A library entry name: a PDF or Regalpaket directly inside LIBRARY_PATH.
+// Also keeps names like "__proto__" out of the JSON stores.
+function isLibraryFileName(name) {
+  return resolveLibraryFile(name) !== null && /\.(pdf|regal)$/i.test(name);
+}
+
+function isPageNumber(value) {
+  return /^[1-9]\d*$/.test(value);
+}
+
+// Pick a name that doesn't collide with an existing file: "Song.pdf" -> "Song (2).pdf"
+function uniqueLibraryName(name) {
+  const ext = path.extname(name);
+  const base = name.slice(0, name.length - ext.length);
+  let candidate = name;
+  for (let n = 2; fs.existsSync(path.join(LIBRARY_PATH, candidate)); n++) {
+    candidate = `${base} (${n})${ext}`;
+  }
+  return candidate;
+}
+
 // Session store (in-memory, will reset on server restart)
 const sessions = new Map();
 const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -36,7 +84,7 @@ function setInitialPassword(password) {
   }
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-  fs.writeFileSync(AUTH_FILE, JSON.stringify({ salt, hash }, null, 2));
+  writeJsonAtomic(AUTH_FILE, { salt, hash });
   return true;
 }
 
@@ -72,6 +120,16 @@ function requireAuth(req, res, next) {
   res.status(401).json({ error: 'Unauthorized' });
 }
 
+// Multer decodes upload file names as latin1, but browsers send UTF-8,
+// turning "Brüder.pdf" into "BrÃ¼der.pdf". Re-decode when that happened.
+function utf8FileName(name) {
+  if (/[^\x00-\xff]/.test(name)) {
+    return name; // Already decoded correctly (contains characters beyond latin1)
+  }
+  const decoded = Buffer.from(name, 'latin1').toString('utf8');
+  return decoded.includes('�') ? name : decoded;
+}
+
 // Configure multer for PDF uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -81,7 +139,12 @@ const storage = multer.diskStorage({
     cb(null, LIBRARY_PATH);
   },
   filename: (req, file, cb) => {
-    cb(null, file.originalname);
+    const name = path.basename(utf8FileName(file.originalname));
+    if (!isLibraryFileName(name)) {
+      return cb(new Error('Invalid file name'));
+    }
+    // Never overwrite an existing file (its annotations would stay attached to the name)
+    cb(null, uniqueLibraryName(name));
   }
 });
 
@@ -179,7 +242,7 @@ app.post('/api/auth/change-password', requireAuth, (req, res) => {
     }
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = crypto.pbkdf2Sync(newPassword, salt, 10000, 64, 'sha512').toString('hex');
-    fs.writeFileSync(AUTH_FILE, JSON.stringify({ salt, hash }, null, 2));
+    writeJsonAtomic(AUTH_FILE, { salt, hash });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -202,7 +265,7 @@ function readShelves() {
 }
 
 function writeShelves(data) {
-  fs.writeFileSync(SHELVES_FILE, JSON.stringify(data, null, 2));
+  writeJsonAtomic(SHELVES_FILE, data);
 }
 
 // Initialize annotations.json if it doesn't exist
@@ -229,11 +292,123 @@ function readFavorites() {
 }
 
 function writeFavorites(data) {
-  fs.writeFileSync(FAVORITES_FILE, JSON.stringify(data, null, 2));
+  writeJsonAtomic(FAVORITES_FILE, data);
 }
 
 function writeAnnotations(data) {
-  fs.writeFileSync(ANNOTATIONS_FILE, JSON.stringify(data, null, 2));
+  writeJsonAtomic(ANNOTATIONS_FILE, data);
+}
+
+// Save or clear one page's strokes for a PDF or Regalpaket
+function savePageAnnotations(fileName, pageNumber, strokes) {
+  const data = readAnnotations();
+
+  if (strokes && strokes.length > 0) {
+    if (!data.annotations[fileName]) {
+      data.annotations[fileName] = {};
+    }
+    data.annotations[fileName][pageNumber] = strokes;
+  } else if (data.annotations[fileName]) {
+    // Remove empty page annotations, and empty file entries
+    delete data.annotations[fileName][pageNumber];
+    if (Object.keys(data.annotations[fileName]).length === 0) {
+      delete data.annotations[fileName];
+    }
+  }
+
+  writeAnnotations(data);
+}
+
+// Point shelves, favorites and annotations at a file's new name. With
+// overwriteAnnotations false, annotations already stored under newName are
+// kept and oldName's stay where they are.
+function moveFileReferences(oldName, newName, { overwriteAnnotations = true } = {}) {
+  const shelvesData = readShelves();
+  for (const shelf of shelvesData.shelves) {
+    const idx = shelf.files.indexOf(oldName);
+    if (idx !== -1) {
+      shelf.files[idx] = newName;
+    }
+    shelf.files = [...new Set(shelf.files)];
+  }
+  writeShelves(shelvesData);
+
+  const favoritesData = readFavorites();
+  favoritesData.favorites = [...new Set(favoritesData.favorites.map(f => f === oldName ? newName : f))];
+  writeFavorites(favoritesData);
+
+  const annotationsData = readAnnotations();
+  const annotations = annotationsData.annotations;
+  if (annotations[oldName] && (overwriteAnnotations || !annotations[newName])) {
+    annotations[newName] = annotations[oldName];
+    delete annotations[oldName];
+  }
+  if (annotationsData.importedRegalpakete) {
+    annotationsData.importedRegalpakete = annotationsData.importedRegalpakete
+      .map(f => f === oldName ? newName : f);
+  }
+  writeAnnotations(annotationsData);
+}
+
+// Regalpakete made before annotations moved to annotations.json carry them
+// inside the archive. Copy them out once per archive and remember that we
+// did, so strokes the user later erases don't come back.
+async function importRegalAnnotations(fileName) {
+  if ((readAnnotations().importedRegalpakete || []).includes(fileName)) {
+    return;
+  }
+
+  const directory = await unzipper.Open.file(resolveLibraryFile(fileName));
+  const pages = {};
+  for (const file of directory.files) {
+    const pageNum = file.path.match(/^annotations\/page-(\d+)\.json$/)?.[1];
+    if (pageNum) {
+      const strokes = JSON.parse((await file.buffer()).toString());
+      if (strokes.length > 0) {
+        pages[pageNum] = strokes;
+      }
+    }
+  }
+
+  // Re-read: other requests may have written while the archive was being read
+  const data = readAnnotations();
+  data.importedRegalpakete = data.importedRegalpakete || [];
+  if (data.importedRegalpakete.includes(fileName)) {
+    return;
+  }
+  if (Object.keys(pages).length > 0 && !data.annotations[fileName]) {
+    data.annotations[fileName] = pages;
+  }
+  data.importedRegalpakete.push(fileName);
+  writeAnnotations(data);
+}
+
+// Import annotations from all legacy Regalpakete up front, so the library
+// shows their annotation badges without opening each one first
+async function importAllRegalAnnotations() {
+  if (!fs.existsSync(LIBRARY_PATH)) return;
+  for (const f of fs.readdirSync(LIBRARY_PATH)) {
+    if (!f.toLowerCase().endsWith('.regal')) continue;
+    try {
+      await importRegalAnnotations(f);
+    } catch (err) {
+      console.error(`Failed to import annotations from ${f}:`, err.message);
+    }
+  }
+}
+
+// Remove leftovers from conversions interrupted by a crash or restart
+function cleanupTempFiles() {
+  if (!fs.existsSync(LIBRARY_PATH)) return;
+  for (const f of fs.readdirSync(LIBRARY_PATH)) {
+    if (f.startsWith('.temp-')) {
+      try {
+        fs.rmSync(path.join(LIBRARY_PATH, f), { recursive: true, force: true });
+      } catch (err) {
+        console.error(`Failed to remove ${f}:`, err.message);
+      }
+    }
+  }
 }
 
 // ========================================
@@ -284,22 +459,25 @@ app.put('/api/files/:fileName/rename', requireAuth, (req, res) => {
   try {
     const { fileName } = req.params;
     const { newName } = req.body;
-    const decodedFileName = decodeURIComponent(fileName);
 
-    if (!newName || !newName.trim()) {
+    if (typeof newName !== 'string' || !newName.trim()) {
       return res.status(400).json({ error: 'New name is required' });
     }
 
     // Get file extension
-    const ext = path.extname(decodedFileName).toLowerCase();
+    const ext = path.extname(fileName).toLowerCase();
     // Ensure new name has same extension
     let finalNewName = newName.trim();
     if (!finalNewName.toLowerCase().endsWith(ext)) {
       finalNewName = finalNewName + ext;
     }
 
-    const oldPath = path.join(LIBRARY_PATH, decodedFileName);
-    const newPath = path.join(LIBRARY_PATH, finalNewName);
+    if (!isLibraryFileName(fileName) || !isLibraryFileName(finalNewName)) {
+      return res.status(400).json({ error: 'Invalid file name' });
+    }
+
+    const oldPath = resolveLibraryFile(fileName);
+    const newPath = resolveLibraryFile(finalNewName);
 
     if (!fs.existsSync(oldPath)) {
       return res.status(404).json({ error: 'File not found' });
@@ -312,29 +490,12 @@ app.put('/api/files/:fileName/rename', requireAuth, (req, res) => {
     // Rename the file
     fs.renameSync(oldPath, newPath);
 
-    // Update shelves references
-    const shelvesData = readShelves();
-    for (const shelf of shelvesData.shelves) {
-      const idx = shelf.files.indexOf(decodedFileName);
-      if (idx !== -1) {
-        shelf.files[idx] = finalNewName;
-      }
-    }
-    writeShelves(shelvesData);
-
-    // Update annotations references (for PDFs)
-    if (ext === '.pdf') {
-      const annotationsData = readAnnotations();
-      if (annotationsData.annotations[decodedFileName]) {
-        annotationsData.annotations[finalNewName] = annotationsData.annotations[decodedFileName];
-        delete annotationsData.annotations[decodedFileName];
-        writeAnnotations(annotationsData);
-      }
-    }
+    // Update shelves, favorites and annotations
+    moveFileReferences(fileName, finalNewName);
 
     res.json({
       success: true,
-      oldName: decodedFileName,
+      oldName: fileName,
       newName: finalNewName,
       path: `/library/${encodeURIComponent(finalNewName)}`
     });
@@ -432,7 +593,7 @@ app.delete('/api/shelves/:id/files/:fileName', requireAuth, (req, res) => {
     if (!shelf) {
       return res.status(404).json({ error: 'Shelf not found' });
     }
-    shelf.files = shelf.files.filter(f => f !== decodeURIComponent(fileName));
+    shelf.files = shelf.files.filter(f => f !== fileName);
     writeShelves(data);
     res.json(shelf);
   } catch (err) {
@@ -448,9 +609,8 @@ app.delete('/api/shelves/:id/files/:fileName', requireAuth, (req, res) => {
 app.get('/api/annotations/:fileName', requireAuth, (req, res) => {
   try {
     const { fileName } = req.params;
-    const decodedFileName = decodeURIComponent(fileName);
     const data = readAnnotations();
-    const fileAnnotations = data.annotations[decodedFileName] || {};
+    const fileAnnotations = data.annotations[fileName] || {};
     res.json(fileAnnotations);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -462,28 +622,12 @@ app.put('/api/annotations/:fileName/:pageNumber', requireAuth, (req, res) => {
   try {
     const { fileName, pageNumber } = req.params;
     const { strokes } = req.body;
-    const decodedFileName = decodeURIComponent(fileName);
 
-    const data = readAnnotations();
-
-    // Initialize file entry if it doesn't exist
-    if (!data.annotations[decodedFileName]) {
-      data.annotations[decodedFileName] = {};
+    if (!isLibraryFileName(fileName) || !isPageNumber(pageNumber)) {
+      return res.status(400).json({ error: 'Invalid file name or page number' });
     }
 
-    // Save or remove page annotations
-    if (strokes && strokes.length > 0) {
-      data.annotations[decodedFileName][pageNumber] = strokes;
-    } else {
-      // Remove empty page annotations
-      delete data.annotations[decodedFileName][pageNumber];
-      // Clean up empty file entries
-      if (Object.keys(data.annotations[decodedFileName]).length === 0) {
-        delete data.annotations[decodedFileName];
-      }
-    }
-
-    writeAnnotations(data);
+    savePageAnnotations(fileName, pageNumber, strokes);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -506,9 +650,8 @@ app.get('/api/annotations', requireAuth, (req, res) => {
 app.delete('/api/annotations/:fileName', requireAuth, (req, res) => {
   try {
     const { fileName } = req.params;
-    const decodedFileName = decodeURIComponent(fileName);
     const data = readAnnotations();
-    delete data.annotations[decodedFileName];
+    delete data.annotations[fileName];
     writeAnnotations(data);
     res.json({ success: true });
   } catch (err) {
@@ -552,9 +695,8 @@ app.post('/api/favorites', requireAuth, (req, res) => {
 app.delete('/api/favorites/:fileName', requireAuth, (req, res) => {
   try {
     const { fileName } = req.params;
-    const decodedFileName = decodeURIComponent(fileName);
     const data = readFavorites();
-    data.favorites = data.favorites.filter(f => f !== decodedFileName);
+    data.favorites = data.favorites.filter(f => f !== fileName);
     writeFavorites(data);
     res.json({ success: true, favorites: data.favorites });
   } catch (err) {
@@ -566,17 +708,38 @@ app.delete('/api/favorites/:fileName', requireAuth, (req, res) => {
 // REGALPAKET API
 // ========================================
 
+// Resolve a Regalpaket route param to its path. Sends an error response and
+// returns null if the name is invalid or the file doesn't exist.
+function findRegalpaket(fileName, res) {
+  const regalPath = isLibraryFileName(fileName) && fileName.toLowerCase().endsWith('.regal')
+    ? resolveLibraryFile(fileName)
+    : null;
+  if (!regalPath) {
+    res.status(400).json({ error: 'Invalid Regalpaket name' });
+    return null;
+  }
+  if (!fs.existsSync(regalPath)) {
+    res.status(404).json({ error: 'Regalpaket not found' });
+    return null;
+  }
+  return regalPath;
+}
+
 // Convert PDF to Regalpaket
 app.post('/api/regalpaket/convert/:fileName', requireAuth, async (req, res) => {
+  let tempDir = null;
+  let tempArchive = null;
   try {
     const { fileName } = req.params;
-    const decodedFileName = decodeURIComponent(fileName);
 
-    if (!decodedFileName.toLowerCase().endsWith('.pdf')) {
+    if (!fileName.toLowerCase().endsWith('.pdf')) {
       return res.status(400).json({ error: 'Only PDF files can be converted' });
     }
 
-    const pdfPath = path.join(LIBRARY_PATH, decodedFileName);
+    const pdfPath = resolveLibraryFile(fileName);
+    if (!pdfPath) {
+      return res.status(400).json({ error: 'Invalid file name' });
+    }
     if (!fs.existsSync(pdfPath)) {
       return res.status(404).json({ error: 'PDF file not found' });
     }
@@ -584,15 +747,18 @@ app.post('/api/regalpaket/convert/:fileName', requireAuth, async (req, res) => {
     // Dynamic import for ES module
     const { pdf } = await import('pdf-to-img');
 
-    const baseName = decodedFileName.replace(/\.pdf$/i, '');
+    const baseName = fileName.replace(/\.pdf$/i, '');
     const regalName = `${baseName}.regal`;
-    const regalPath = path.join(LIBRARY_PATH, regalName);
-    const tempDir = path.join(LIBRARY_PATH, `.temp-${Date.now()}`);
+    const regalPath = resolveLibraryFile(regalName);
+
+    // Re-converting replaces the archive; keep any annotations stored inside the old one
+    if (fs.existsSync(regalPath)) {
+      await importRegalAnnotations(regalName);
+    }
 
     // Create temp directory for conversion
-    fs.mkdirSync(tempDir, { recursive: true });
+    tempDir = fs.mkdtempSync(path.join(LIBRARY_PATH, '.temp-'));
     fs.mkdirSync(path.join(tempDir, 'pages'), { recursive: true });
-    fs.mkdirSync(path.join(tempDir, 'annotations'), { recursive: true });
 
     // Convert PDF pages to images at 300 DPI
     const pdfDocument = await pdf(pdfPath, { scale: 300 / 72 }); // 300 DPI (72 is default)
@@ -605,16 +771,6 @@ app.post('/api/regalpaket/convert/:fileName', requireAuth, async (req, res) => {
       const pagePath = path.join(tempDir, 'pages', `page-${pageNum}.png`);
       fs.writeFileSync(pagePath, image);
       pageData.push({ page: pageNum, file: `page-${pageNum}.png` });
-    }
-
-    // Get existing annotations for this PDF
-    const annotationsData = readAnnotations();
-    const pdfAnnotations = annotationsData.annotations[decodedFileName] || {};
-
-    // Write annotation files for each page that has annotations
-    for (const [pageNumber, strokes] of Object.entries(pdfAnnotations)) {
-      const annotationPath = path.join(tempDir, 'annotations', `page-${pageNumber}.json`);
-      fs.writeFileSync(annotationPath, JSON.stringify(strokes, null, 2));
     }
 
     // Copy original PDF
@@ -631,12 +787,15 @@ app.post('/api/regalpaket/convert/:fileName', requireAuth, async (req, res) => {
     };
     fs.writeFileSync(path.join(tempDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
-    // Create .regal archive (zip)
-    const output = fs.createWriteStream(regalPath);
+    // Build the .regal archive (zip) under a temp name and rename it into
+    // place, so an interrupted conversion never leaves a half-written file
+    tempArchive = `${tempDir}.zip`;
+    const output = fs.createWriteStream(tempArchive);
     const archive = archiver('zip', { zlib: { level: 5 } });
 
     await new Promise((resolve, reject) => {
       output.on('close', resolve);
+      output.on('error', reject);
       archive.on('error', reject);
 
       archive.pipe(output);
@@ -644,22 +803,15 @@ app.post('/api/regalpaket/convert/:fileName', requireAuth, async (req, res) => {
       archive.finalize();
     });
 
-    // Clean up temp directory
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.renameSync(tempArchive, regalPath);
+    tempArchive = null;
 
-    // Remove annotations from annotations.json (now stored in .regal)
-    delete annotationsData.annotations[decodedFileName];
-    writeAnnotations(annotationsData);
+    // Annotations are kept in annotations.json; record that this archive has none to import
+    await importRegalAnnotations(regalName);
 
-    // Update shelves to reference the new .regal file instead of .pdf
-    const shelvesData = readShelves();
-    for (const shelf of shelvesData.shelves) {
-      const idx = shelf.files.indexOf(decodedFileName);
-      if (idx !== -1) {
-        shelf.files[idx] = regalName;
-      }
-    }
-    writeShelves(shelvesData);
+    // Point shelves, favorites and annotations at the new .regal file.
+    // Annotations already on an existing .regal win; the PDF keeps its own then.
+    moveFileReferences(fileName, regalName, { overwriteAnnotations: false });
 
     // Optionally delete the original PDF (keep it for now, user can delete manually)
     // fs.unlinkSync(pdfPath);
@@ -674,19 +826,21 @@ app.post('/api/regalpaket/convert/:fileName', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Conversion error:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    if (tempDir) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+    if (tempArchive) {
+      fs.rmSync(tempArchive, { force: true });
+    }
   }
 });
 
 // Get Regalpaket manifest
 app.get('/api/regalpaket/:fileName/manifest', requireAuth, async (req, res) => {
   try {
-    const { fileName } = req.params;
-    const decodedFileName = decodeURIComponent(fileName);
-    const regalPath = path.join(LIBRARY_PATH, decodedFileName);
-
-    if (!fs.existsSync(regalPath)) {
-      return res.status(404).json({ error: 'Regalpaket not found' });
-    }
+    const regalPath = findRegalpaket(req.params.fileName, res);
+    if (!regalPath) return;
 
     const directory = await unzipper.Open.file(regalPath);
     const manifestFile = directory.files.find(f => f.path === 'manifest.json');
@@ -707,12 +861,12 @@ app.get('/api/regalpaket/:fileName/manifest', requireAuth, async (req, res) => {
 // Get page image from Regalpaket
 app.get('/api/regalpaket/:fileName/page/:pageNum', requireAuth, async (req, res) => {
   try {
-    const { fileName, pageNum } = req.params;
-    const decodedFileName = decodeURIComponent(fileName);
-    const regalPath = path.join(LIBRARY_PATH, decodedFileName);
+    const { pageNum } = req.params;
+    const regalPath = findRegalpaket(req.params.fileName, res);
+    if (!regalPath) return;
 
-    if (!fs.existsSync(regalPath)) {
-      return res.status(404).json({ error: 'Regalpaket not found' });
+    if (!isPageNumber(pageNum)) {
+      return res.status(400).json({ error: 'Invalid page number' });
     }
 
     const directory = await unzipper.Open.file(regalPath);
@@ -732,122 +886,53 @@ app.get('/api/regalpaket/:fileName/page/:pageNum', requireAuth, async (req, res)
   }
 });
 
-// Get annotations from Regalpaket
+// Annotations for Regalpakete live in annotations.json, keyed by file name,
+// the same as for PDFs. Older archives are imported on first access.
+
+// Get annotations for one page of a Regalpaket
 app.get('/api/regalpaket/:fileName/annotations/:pageNum', requireAuth, async (req, res) => {
   try {
     const { fileName, pageNum } = req.params;
-    const decodedFileName = decodeURIComponent(fileName);
-    const regalPath = path.join(LIBRARY_PATH, decodedFileName);
+    if (!findRegalpaket(fileName, res)) return;
 
-    if (!fs.existsSync(regalPath)) {
-      return res.status(404).json({ error: 'Regalpaket not found' });
-    }
-
-    const directory = await unzipper.Open.file(regalPath);
-    const annotationFile = directory.files.find(f => f.path === `annotations/page-${pageNum}.json`);
-
-    if (!annotationFile) {
-      // No annotations for this page
-      return res.json([]);
-    }
-
-    const content = await annotationFile.buffer();
-    const strokes = JSON.parse(content.toString());
-    res.json(strokes);
+    await importRegalAnnotations(fileName);
+    const data = readAnnotations();
+    res.json(data.annotations[fileName]?.[pageNum] || []);
 
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Get all annotations from Regalpaket
+// Get all annotations for a Regalpaket
 app.get('/api/regalpaket/:fileName/annotations', requireAuth, async (req, res) => {
   try {
     const { fileName } = req.params;
-    const decodedFileName = decodeURIComponent(fileName);
-    const regalPath = path.join(LIBRARY_PATH, decodedFileName);
+    if (!findRegalpaket(fileName, res)) return;
 
-    if (!fs.existsSync(regalPath)) {
-      return res.status(404).json({ error: 'Regalpaket not found' });
-    }
-
-    const directory = await unzipper.Open.file(regalPath);
-    const annotationFiles = directory.files.filter(f => f.path.startsWith('annotations/') && f.path.endsWith('.json'));
-
-    const annotations = {};
-    for (const file of annotationFiles) {
-      const pageNum = file.path.match(/page-(\d+)\.json/)?.[1];
-      if (pageNum) {
-        const content = await file.buffer();
-        annotations[pageNum] = JSON.parse(content.toString());
-      }
-    }
-
-    res.json(annotations);
+    await importRegalAnnotations(fileName);
+    const data = readAnnotations();
+    res.json(data.annotations[fileName] || {});
 
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Save annotations to Regalpaket
+// Save annotations for one page of a Regalpaket
 app.put('/api/regalpaket/:fileName/annotations/:pageNum', requireAuth, async (req, res) => {
   try {
     const { fileName, pageNum } = req.params;
     const { strokes } = req.body;
-    const decodedFileName = decodeURIComponent(fileName);
-    const regalPath = path.join(LIBRARY_PATH, decodedFileName);
+    if (!findRegalpaket(fileName, res)) return;
 
-    if (!fs.existsSync(regalPath)) {
-      return res.status(404).json({ error: 'Regalpaket not found' });
+    if (!isPageNumber(pageNum)) {
+      return res.status(400).json({ error: 'Invalid page number' });
     }
 
-    // Read existing archive
-    const directory = await unzipper.Open.file(regalPath);
-
-    // Create temp directory for reconstruction
-    const tempDir = path.join(LIBRARY_PATH, `.temp-${Date.now()}`);
-    fs.mkdirSync(tempDir, { recursive: true });
-    fs.mkdirSync(path.join(tempDir, 'pages'), { recursive: true });
-    fs.mkdirSync(path.join(tempDir, 'annotations'), { recursive: true });
-
-    // Extract all existing files
-    for (const file of directory.files) {
-      if (file.type === 'File') {
-        const content = await file.buffer();
-        const filePath = path.join(tempDir, file.path);
-        const fileDir = path.dirname(filePath);
-        if (!fs.existsSync(fileDir)) {
-          fs.mkdirSync(fileDir, { recursive: true });
-        }
-        fs.writeFileSync(filePath, content);
-      }
-    }
-
-    // Update or create annotation file
-    const annotationPath = path.join(tempDir, 'annotations', `page-${pageNum}.json`);
-    if (strokes && strokes.length > 0) {
-      fs.writeFileSync(annotationPath, JSON.stringify(strokes, null, 2));
-    } else if (fs.existsSync(annotationPath)) {
-      fs.unlinkSync(annotationPath);
-    }
-
-    // Recreate archive
-    const output = fs.createWriteStream(regalPath);
-    const archive = archiver('zip', { zlib: { level: 5 } });
-
-    await new Promise((resolve, reject) => {
-      output.on('close', resolve);
-      archive.on('error', reject);
-
-      archive.pipe(output);
-      archive.directory(tempDir, false);
-      archive.finalize();
-    });
-
-    // Clean up temp directory
-    fs.rmSync(tempDir, { recursive: true, force: true });
-
+    // Import first, or the archive's other pages would be skipped later
+    await importRegalAnnotations(fileName);
+    savePageAnnotations(fileName, pageNum, strokes);
     res.json({ success: true });
 
   } catch (err) {
@@ -860,19 +945,11 @@ app.put('/api/regalpaket/:fileName/annotations/:pageNum', requireAuth, async (re
 app.get('/api/regalpaket/:fileName/has-annotations', requireAuth, async (req, res) => {
   try {
     const { fileName } = req.params;
-    const decodedFileName = decodeURIComponent(fileName);
-    const regalPath = path.join(LIBRARY_PATH, decodedFileName);
+    if (!findRegalpaket(fileName, res)) return;
 
-    if (!fs.existsSync(regalPath)) {
-      return res.status(404).json({ error: 'Regalpaket not found' });
-    }
-
-    const directory = await unzipper.Open.file(regalPath);
-    const hasAnnotations = directory.files.some(f =>
-      f.path.startsWith('annotations/') && f.path.endsWith('.json')
-    );
-
-    res.json({ hasAnnotations });
+    await importRegalAnnotations(fileName);
+    const data = readAnnotations();
+    res.json({ hasAnnotations: Boolean(data.annotations[fileName]) });
 
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -883,15 +960,18 @@ app.get('/api/regalpaket/:fileName/has-annotations', requireAuth, async (req, re
 app.get('/library/:fileName', requireAuth, (req, res) => {
   try {
     const { fileName } = req.params;
-    const decodedFileName = decodeURIComponent(fileName);
-    const filePath = path.join(LIBRARY_PATH, decodedFileName);
+    const filePath = resolveLibraryFile(fileName);
+
+    if (!filePath) {
+      return res.status(400).json({ error: 'Invalid file name' });
+    }
 
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found' });
     }
 
     // Only serve PDF files
-    if (!decodedFileName.toLowerCase().endsWith('.pdf')) {
+    if (!fileName.toLowerCase().endsWith('.pdf')) {
       return res.status(400).json({ error: 'Only PDF files can be accessed' });
     }
 
@@ -921,4 +1001,6 @@ app.listen(PORT, '0.0.0.0', () => {
   initShelvesFile();
   initAnnotationsFile();
   initFavoritesFile();
+  cleanupTempFiles();
+  importAllRegalAnnotations();
 });

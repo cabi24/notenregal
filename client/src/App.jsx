@@ -149,6 +149,8 @@ function App() {
       if (res.ok) {
         await fetchFiles()
         await fetchShelves()
+        await fetchFavorites()
+        await fetchAnnotatedFiles()
         return { success: true }
       } else {
         const data = await res.json()
@@ -304,6 +306,8 @@ function App() {
                 if (res.ok) {
                   const data = await res.json()
                   await fetchFiles()
+                  await fetchShelves()
+                  await fetchFavorites()
                   await fetchAnnotatedFiles()
                   // Open the new regal file (server returns 'name' not 'regalFileName')
                   setViewingPdf({
